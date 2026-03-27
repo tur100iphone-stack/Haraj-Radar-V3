@@ -9,7 +9,7 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
-import cloudscraper
+from curl_cffi import requests as curl_requests # السلاح السري الجديد
 
 # ================= 1. إعدادات السيرفر =================
 app = Flask(__name__)
@@ -97,12 +97,12 @@ def send_welcome(message):
 def test_cmd(message):
     try:
         keyword = message.text.split(' ', 1)[1].strip()
-        bot.reply_to(message, f"⏳ جاري فحص حراج عن '{keyword}' (باستخدام التخفي)...")
+        bot.reply_to(message, f"⏳ جاري فحص حراج عن '{keyword}' بالبصمة الجديدة...")
         ads = fetch_haraj_ads(keyword, test_mode=True)
         if ads:
-            bot.reply_to(message, f"✅ نجح السحب! تم العثور على {len(ads)} إعلانات.\n\n📌 {ads[0]['title']}\n🔗 {ads[0]['url']}")
+            bot.reply_to(message, f"✅ نجح السحب وكسر الحماية! تم العثور على {len(ads)} إعلانات.\n\n📌 {ads[0]['title']}\n🔗 {ads[0]['url']}")
         else:
-            bot.reply_to(message, "❌ لم يتم العثور على إعلانات أو السيرفر محظور مؤقتاً.")
+            bot.reply_to(message, "❌ ما زال السيرفر محظور. الحماية لم تسمح لنا بالمرور.")
     except:
         bot.reply_to(message, "أرسل الأمر متبوعاً بالكلمة، مثال:\n/test كامري")
 
@@ -214,17 +214,17 @@ def process_quiet(message):
         except:
             bot.send_message(chat_id, "❌ صيغة خاطئة.")
 
-# ================= 5. محرك الرادار (Cloudscraper) =================
+# ================= 5. محرك الرادار المتطور =================
 LAST_RUNS = {}
 
 def fetch_haraj_ads(keyword, test_mode=False):
-    scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True})
     ads = []
     pages = 1 if test_mode else 4 
     for page in range(1, pages):
         url = f"https://haraj.com.sa/search/{keyword}" if page == 1 else f"https://haraj.com.sa/search/{keyword}?page={page}"
         try:
-            res = scraper.get(url, timeout=15)
+            # هنا السحر! السيرفر يكلم حراج وكأنه متصفح كروم 110 من جهاز ويندوز
+            res = curl_requests.get(url, impersonate="chrome110", timeout=15)
             if res.status_code == 200:
                 soup = BeautifulSoup(res.text, 'html.parser')
                 for a in soup.find_all('a', href=True):
