@@ -3,13 +3,12 @@ import os
 import json
 import time
 import threading
-from bs4 import BeautifulSoup
+import requests
 from flask import Flask, request, render_template, session, redirect, url_for
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
-from curl_cffi import requests as curl_requests # السلاح السري الجديد
 
 # ================= 1. إعدادات السيرفر =================
 app = Flask(__name__)
@@ -97,12 +96,12 @@ def send_welcome(message):
 def test_cmd(message):
     try:
         keyword = message.text.split(' ', 1)[1].strip()
-        bot.reply_to(message, f"⏳ جاري فحص حراج عن '{keyword}' بالبصمة الجديدة...")
+        bot.reply_to(message, f"⏳ جاري فحص حراج عن '{keyword}' (من الباب الخلفي للتطبيق)...")
         ads = fetch_haraj_ads(keyword, test_mode=True)
         if ads:
-            bot.reply_to(message, f"✅ نجح السحب وكسر الحماية! تم العثور على {len(ads)} إعلانات.\n\n📌 {ads[0]['title']}\n🔗 {ads[0]['url']}")
+            bot.reply_to(message, f"✅ نجح الاختراق! تم العثور على {len(ads)} إعلانات.\n\n📌 {ads[0]['title']}\n🔗 {ads[0]['url']}")
         else:
-            bot.reply_to(message, "❌ ما زال السيرفر محظور. الحماية لم تسمح لنا بالمرور.")
+            bot.reply_to(message, "❌ للأسف، حتى الباب الخلفي تم حظره على سيرفرات ريندر.")
     except:
         bot.reply_to(message, "أرسل الأمر متبوعاً بالكلمة، مثال:\n/test كامري")
 
@@ -214,30 +213,55 @@ def process_quiet(message):
         except:
             bot.send_message(chat_id, "❌ صيغة خاطئة.")
 
-# ================= 5. محرك الرادار المتطور =================
+# ================= 5. محرك الرادار (الباب الخلفي للتطبيق) =================
 LAST_RUNS = {}
 
 def fetch_haraj_ads(keyword, test_mode=False):
+    url = "https://graphql.haraj.com.sa/"
+    # تمويه قوي: ندخل على أساس إننا تطبيق حراج الرسمي في جهاز آيفون
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Haraj/6.11.2 (iPhone; iOS 16.6; Scale/3.00)",
+        "Accept": "application/json"
+    }
+    
+    # لغة استعلام حراج الخاصة (GraphQL)
+    query = """
+    query($query: String, $page: Int) {
+      search(query: $query, page: $page) {
+        items {
+          id
+          title
+        }
+      }
+    }
+    """
+    
     ads = []
-    pages = 1 if test_mode else 4 
-    for page in range(1, pages):
-        url = f"https://haraj.com.sa/search/{keyword}" if page == 1 else f"https://haraj.com.sa/search/{keyword}?page={page}"
+    pages = 1 if test_mode else 3 
+    
+    for page in range(1, pages + 1):
+        payload = {
+            "query": query,
+            "variables": {
+                "query": keyword,
+                "page": page
+            }
+        }
         try:
-            # هنا السحر! السيرفر يكلم حراج وكأنه متصفح كروم 110 من جهاز ويندوز
-            res = curl_requests.get(url, impersonate="chrome110", timeout=15)
+            res = requests.post(url, json=payload, headers=headers, timeout=15)
             if res.status_code == 200:
-                soup = BeautifulSoup(res.text, 'html.parser')
-                for a in soup.find_all('a', href=True):
-                    if '/11' in a['href'] and len(a['href']) > 15:
-                        title_tag = a.find('h2')
-                        img_tag = a.find('img')
-                        if title_tag:
-                            title = title_tag.text.strip()
-                            link = "https://haraj.com.sa" + a['href'] if a['href'].startswith('/') else a['href']
-                            img_url = img_tag['src'] if img_tag and 'src' in img_tag.attrs else "https://haraj.com.sa/images/default-share-image.png"
-                            if {'title': title, 'url': link, 'image': img_url} not in ads:
-                                ads.append({'title': title, 'url': link, 'image': img_url})
-        except:
+                data = res.json()
+                items = data.get("data", {}).get("search", {}).get("items", [])
+                for item in items:
+                    title = item.get("title", "")
+                    # بناء الرابط الخاص بالإعلان من الـ ID
+                    link = f"https://haraj.com.sa/11{item.get('id')}"
+                    
+                    ad_data = {'title': title, 'url': link}
+                    if ad_data not in ads:
+                        ads.append(ad_data)
+        except Exception as e:
             pass
         if not test_mode: time.sleep(2) 
     return ads
@@ -273,7 +297,8 @@ def radar_engine():
                                     continue
                                 if not AdArchive.query.filter_by(chat_id=user.chat_id, ad_url=ad['url']).first():
                                     try:
-                                        bot.send_photo(user.chat_id, ad['image'], caption=f"🎯 صيدة: {word}\n📌 {ad['title']}\n🔗 {ad['url']}")
+                                        # استبدلنا إرسال الصورة برسالة نصية عادية عشان التليجرام يجيب معاينة الإعلان (وصورته) بشكل تلقائي!
+                                        bot.send_message(user.chat_id, f"🎯 صيدة: {word}\n📌 {ad['title']}\n🔗 {ad['url']}")
                                         db.session.add(AdArchive(chat_id=user.chat_id, ad_url=ad['url'], keyword=word))
                                         db.session.commit()
                                     except: pass
