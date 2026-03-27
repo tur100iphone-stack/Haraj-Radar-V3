@@ -2,19 +2,21 @@
 import os
 import json
 import time
-import random
 import threading
-from bs4 import BeautifulSoup
+import requests
 from flask import Flask, request, render_template, session, redirect, url_for
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
-from curl_cffi import requests as curl_requests
 
 # ================= 1. إعدادات السيرفر =================
 app = Flask(__name__)
 app.secret_key = "haraj_telegram_super_secret"
+
+# تم تركيب رابط جوجل الخاص بك بنجاح ✅
+GAS_URL = "https://script.google.com/macros/s/AKfycbwp7gUxhn4KhJ4HhJXX4X69akQm1if6kvLPoNKoBiT4L5GT6NjVzkasTLOntRDqkpw/exec"
+
 BOT_TOKEN = "8703446111:AAFgOcfn4SbYYZOEPrW4ecqRyaYrPz_LcE4"
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False) 
 ADMIN_PASSWORD = "123"
@@ -98,12 +100,12 @@ def send_welcome(message):
 def test_cmd(message):
     try:
         keyword = message.text.split(' ', 1)[1].strip()
-        bot.reply_to(message, f"⏳ جاري فحص حراج عن '{keyword}' (بصمة بشرية عشوائية)...")
+        bot.reply_to(message, f"⏳ جاري فحص حراج عن '{keyword}' (عبر سيرفرات جوجل)...")
         ads = fetch_haraj_ads(keyword, test_mode=True)
         if ads:
-            bot.reply_to(message, f"✅ نجح السحب! تم العثور على {len(ads)} إعلانات.\n\n📌 {ads[0]['title']}\n🔗 {ads[0]['url']}")
+            bot.reply_to(message, f"✅ نجح السحب الجذري! تم العثور على إعلانات.\n\n📌 {ads[0]['title']}\n🔗 {ads[0]['url']}")
         else:
-            bot.reply_to(message, "❌ السحب فشل. الحظر المؤقت لا يزال فعالاً على هذا السيرفر، يرجى الانتظار بضع ساعات لفك الحظر التلقائي من حراج.")
+            bot.reply_to(message, "❌ لم يتم العثور على إعلانات حديثة لهذه الكلمة، جرب كلمة أخرى شائعة.")
     except:
         bot.reply_to(message, "أرسل الأمر متبوعاً بالكلمة، مثال:\n/test كامري")
 
@@ -215,44 +217,33 @@ def process_quiet(message):
         except:
             bot.send_message(chat_id, "❌ صيغة خاطئة.")
 
-# ================= 5. محرك الرادار البشري (التخفي الذكي) =================
+# ================= 5. محرك الرادار (عبر جوجل) =================
 LAST_RUNS = {}
 
 def fetch_haraj_ads(keyword, test_mode=False):
-    # نغير البصمة بشكل عشوائي عشان نظهر كأشخاص مختلفين
-    browsers = ["chrome110", "edge99", "safari15_3"]
-    selected_browser = random.choice(browsers)
-    
     ads = []
     pages = 1 if test_mode else 3 
+    
     for page in range(1, pages + 1):
-        url = f"https://haraj.com.sa/search/{keyword}" if page == 1 else f"https://haraj.com.sa/search/{keyword}?page={page}"
         try:
-            res = curl_requests.get(url, impersonate=selected_browser, timeout=15)
+            # السيرفر الخاص بك يطلب من جوجل إحضار البيانات بدلاً من حراج المباشر
+            res = requests.get(f"{GAS_URL}?q={keyword}&page={page}", timeout=20)
             if res.status_code == 200:
-                soup = BeautifulSoup(res.text, 'html.parser')
-                for a in soup.find_all('a', href=True):
-                    if '/11' in a['href'] and len(a['href']) > 15:
-                        title_tag = a.find('h2')
-                        img_tag = a.find('img')
-                        if title_tag:
-                            title = title_tag.text.strip()
-                            link = "https://haraj.com.sa" + a['href'] if a['href'].startswith('/') else a['href']
-                            img_url = img_tag['src'] if img_tag and 'src' in img_tag.attrs else "https://haraj.com.sa/images/default-share-image.png"
-                            if {'title': title, 'url': link, 'image': img_url} not in ads:
-                                ads.append({'title': title, 'url': link, 'image': img_url})
+                data = res.json()
+                items = data.get("data", {}).get("search", {}).get("items", [])
+                for item in items:
+                    title = item.get("title", "")
+                    link = f"https://haraj.com.sa/11{item.get('id')}"
+                    ad_data = {'title': title, 'url': link}
+                    if ad_data not in ads:
+                        ads.append(ad_data)
         except:
             pass
-        
-        # السحر هنا: تأخير عشوائي بين الصفحات من 3 إلى 7 ثواني (تصرف بشري بحت)
-        if not test_mode: 
-            time.sleep(random.uniform(3.5, 7.2)) 
-            
+        if not test_mode: time.sleep(1) 
     return ads
 
 def radar_engine():
-    # يبدأ المحرك بعد دقيقة من تشغيل السيرفر عشان يهدأ شوي
-    time.sleep(60)
+    time.sleep(10)
     while True:
         try:
             with app.app_context():
@@ -275,7 +266,6 @@ def radar_engine():
                         LAST_RUNS[user.chat_id] = now
                         w_list = json.loads(user.search_words)
                         e_list = json.loads(user.excluded_words)
-                        
                         for word in w_list:
                             ads = fetch_haraj_ads(word)
                             for ad in ads:
@@ -287,11 +277,8 @@ def radar_engine():
                                         db.session.add(AdArchive(chat_id=user.chat_id, ad_url=ad['url'], keyword=word))
                                         db.session.commit()
                                     except: pass
-                            # تأخير عشوائي بين الكلمات لنفس المستخدم
-                            time.sleep(random.uniform(2.0, 5.0))
         except: pass
-        # المحرك الأساسي ينتظر 90 ثانية بدل 30 ثانية لتجنب لفت الانتباه
-        time.sleep(90)
+        time.sleep(30)
 
 threading.Thread(target=radar_engine, daemon=True).start()
 
